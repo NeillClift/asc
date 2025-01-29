@@ -126,6 +126,125 @@ Parses the command line parameters
     }
 }
 
+struct TOKEN_TABLE {
+    union {
+        char diff[4];
+        int all;
+    } u;
+    char value;
+};
+
+struct TOKEN_TABLE_COMPRESSED {
+    union {
+        char diff[4];
+        int all;
+    } u;
+};
+
+class lKnown {
+    NTYPE Start, End;
+    const size_t BufferSize = 1024 * 128;
+    unsigned char* Buffer;
+    FILE* fp;
+    TOKEN_TABLE_COMPRESSED Lookup[256];
+    unsigned int LookupSize;
+
+public:
+
+    char BadValue = -1;
+
+    lKnown()
+    {
+        Buffer = new unsigned char[BufferSize];
+        if ((fp = fopen("add39z.4ln", "rbR")) == NULL) {
+            fp = nullptr;
+            //			printf("can't open add39z.4ln\n");
+            //			exit(0);
+        }
+        else {
+            fread(&LookupSize, sizeof(LookupSize), 1, fp);
+            if (LookupSize > 256) {
+                printf("Bad lookup table size %u\n", LookupSize);
+                exit(0);
+            }
+            fread(Lookup, sizeof(Lookup[0]), LookupSize, fp);
+        }
+        Start = (NTYPE)-1;
+        End = (NTYPE)-2;
+    }
+
+    ~lKnown()
+    {
+        if (fp) {
+            fclose(fp);
+        }
+        delete[] Buffer;
+    }
+
+    NTYPE Limit()
+    {
+        long long current = _ftelli64(fp);
+        _fseeki64(fp, 0, SEEK_END);
+        NTYPE limit = _ftelli64(fp);
+        _fseeki64(fp, current, SEEK_SET);
+        return (NTYPE)((limit - (LookupSize + 1) * 4) * 4 - 1);
+    }
+
+    NTYPE GetBufferSize()
+    {
+        return BufferSize * 4;
+    }
+
+    bool ShiftBuffer(NTYPE n)
+    {
+        if (n < Start || n > End) {
+            if (fp == nullptr) {
+                return false;
+            }
+            if (n != End + 1) {
+                long long Offset = n / 4 + (LookupSize + 1) * 4;
+                _fseeki64(fp, Offset, SEEK_SET);
+                Start = n & ~(NTYPE)3;
+            }
+            else {
+                Start = End + 1;
+            }
+            size_t len = fread(Buffer, sizeof(Buffer[0]), BufferSize, fp);
+            if (len == 0) {
+                return false;
+            }
+            End = Start + len * 4 - 1;
+        }
+        return true;
+    }
+
+    char s(NTYPE n)
+    {
+        if (!ShiftBuffer(n)) {
+            return -1;
+        }
+        NTYPE diff = n - Start;
+        unsigned char c = Buffer[diff / 4];
+        unsigned int offset = diff % 4;
+        if (c >= LookupSize) {
+            printf("Bad token %d in data. Max is %u", c, LookupSize - 1);
+            exit(0);
+        }
+        return (char)(log2u(bits(n)) + Lookup[c].u.diff[offset]);
+    }
+
+    char l(NTYPE n)
+    {
+        char ln = s(n);
+        if (ln != -1) {
+            ln += lambda(n);
+        }
+        return (char)ln;
+    }
+};
+
+__declspec(thread) static lKnown lk;
+
 static void BuildBounds(vector<Elem> &elem, NTYPE n, LPTYPER l)
 {
     for (LPTYPER i = l; i >= 0; i--) {
@@ -169,7 +288,7 @@ static bool Recurse(vector<Elem> &elem, LPTYPER c, LPTYPER l, NTYPE n, NTYPE Ref
             }
             NTYPE a = elem[j].a + elem[k].a;
             NTYPE s = elem[j].s + elem[k].s;
-            if (a < elem[c].a || (a == elem[c].a && s > elem[c].s)) {
+            if (a < elem[c].a || (a == elem[c].a && s < elem[c].s)) {
                 if (j == k) {
                     return false;
                 }
