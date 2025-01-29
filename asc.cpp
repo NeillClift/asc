@@ -1,6 +1,6 @@
 // asc.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
-
+#define _CRT_SECURE_NO_WARNINGS
 #include <iostream>
 #include <intrin.h>
 #include <vector>
@@ -11,6 +11,7 @@ using namespace std;
 typedef unsigned long long NTYPE;
 typedef long long SNTYPE;
 typedef int LPTYPER;
+typedef int8_t LPTYPE;
 
 struct Elem {
 	//
@@ -329,30 +330,28 @@ static void do_test()
     NTYPE Power = (NTYPE)1 << 11;
     NTYPE Start = 1;
     clock_t start_time = clock();
-    LPTYPER ms = -1;
+    vector<LPTYPE> ln;
+    ln.assign(MAX_TEST_VALUE + 2, -1);
+    NTYPE LnFound = 0;
+
     do {
 #pragma omp parallel
         {
 #pragma omp for schedule(dynamic)
             for (SNTYPE n = Start; n <= (SNTYPE)Power; n++) {
                 LPTYPER l = log2u(n);
-                LPTYPER s = log2u(bitsNAF(n));
-                LPTYPER lu = lambda(n) + s;
-                if (s > ms) {
-#pragma omp critical
-                    {
-                        if (s > ms) {
-                            cout << "Hit " << s << " small steps for " << n << "\n";
-                            ms = s;
-                        }
-                    }
-                }
-                while (l < lu) {
-                    if (FindChain(n, l)) {
+                LPTYPER ll = lk.l(n);
+                while (true) {
+                    if (l == ll || FindChain(n, l)) {
 #pragma omp critical
                         {
-                            cout << n << " " << l << "\n";
-                            exit(0);
+                            ln[n] = l;
+                            if (LnFound + 1 == n) {
+                                while (ln[LnFound + 1] != -1) {
+                                    LnFound++;
+                                    cout << LnFound << " " << (LPTYPER)ln[LnFound] << "\n";
+                                }
+                            }
                         }
                         break;
                     }
@@ -361,7 +360,7 @@ static void do_test()
             }
         }
 
-        cout << "//n <= 2^" << lambda(Power) << " " << (double)(clock() - start_time) / CLOCKS_PER_SEC << " secs.\n";
+        cerr << "//n <= 2^" << lambda(Power) << " " << (double)(clock() - start_time) / CLOCKS_PER_SEC << " secs.\n";
         Start = Power + 1;
         Power <<= 1;
     } while (Power <= MAX_TEST_VALUE);
